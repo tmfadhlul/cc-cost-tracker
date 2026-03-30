@@ -15,7 +15,10 @@ func main() {
 
 	h := handlers.New(templateDir, backendURL)
 
+	staticDir := findStaticDir()
+
 	mux := http.NewServeMux()
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir))))
 	mux.HandleFunc("/", h.Overview)
 	mux.HandleFunc("/sessions", h.Sessions)
 	mux.HandleFunc("/projects", h.Projects)
@@ -27,6 +30,20 @@ func main() {
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func findStaticDir() string {
+	if _, err := os.Stat("static"); err == nil {
+		return "static"
+	}
+	exe, err := os.Executable()
+	if err == nil {
+		d := filepath.Join(filepath.Dir(exe), "static")
+		if _, err := os.Stat(d); err == nil {
+			return d
+		}
+	}
+	return "static"
 }
 
 func findTemplateDir() string {
