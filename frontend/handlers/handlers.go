@@ -55,6 +55,12 @@ type SessionSummary struct {
 	Cost        float64 `json:"cost"`
 }
 
+type ModelSeries struct {
+	Model  string    `json:"model"`
+	Daily  []float64 `json:"daily"`
+	Hourly []float64 `json:"hourly"`
+}
+
 type OverviewData struct {
 	Today           CostSummary      `json:"today"`
 	Week            CostSummary      `json:"week"`
@@ -62,6 +68,7 @@ type OverviewData struct {
 	Projected       CostSummary      `json:"projected"`
 	DailySpend      []DailySpend     `json:"daily_spend"`
 	HourlySpend     []float64        `json:"hourly_spend"`
+	ModelSeries     []ModelSeries    `json:"model_series"`
 	CostBreakdown   CostBreakdown    `json:"cost_breakdown"`
 	ModelBreakdown  []ModelBreakdown `json:"model_breakdown"`
 	ActivityHeatmap []HeatmapCell    `json:"activity_heatmap"`

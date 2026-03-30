@@ -67,7 +67,7 @@
     <div style="height:190px;position:relative;">
       <canvas id="chart-daily"
         data-labels='{{dailyLabels $d.DailySpend | jsonMarshal}}'
-        data-values='{{dailyValues $d.DailySpend | jsonMarshal}}'></canvas>
+        data-series='{{jsonMarshal $d.ModelSeries}}'></canvas>
     </div>
   </div>
 
@@ -76,7 +76,7 @@
     <div style="height:190px;position:relative;">
       <canvas id="chart-hourly"
         data-labels='{{hourLabels | jsonMarshal}}'
-        data-values='{{jsonMarshal $d.HourlySpend}}'></canvas>
+        data-series='{{jsonMarshal $d.ModelSeries}}'></canvas>
     </div>
   </div>
 
@@ -188,32 +188,65 @@
     ACCENT2: '#ef8c23',
     GREEN:   '#22c55e',
     BLUE:    '#3b82f6',
+    PURPLE:  '#a855f7',
     MUTED:   '#5a6273',
     TIP_BG:  '#1f2224',
     TIP_BD:  '#2f3340',
     GRID:    'rgba(37,40,48,.8)',
   };
 
-  const BAR_CFG = {
+  // Consistent color per model — keyed by substring
+  function modelColor(model, alpha) {
+    const a = alpha || 'cc';
+    if (model.includes('opus'))   return C.ACCENT  + a;
+    if (model.includes('sonnet')) return C.BLUE    + a;
+    if (model.includes('haiku'))  return C.GREEN   + a;
+    return C.PURPLE + a;
+  }
+  function modelColorSolid(model) {
+    if (model.includes('opus'))   return C.ACCENT;
+    if (model.includes('sonnet')) return C.BLUE;
+    if (model.includes('haiku'))  return C.GREEN;
+    return C.PURPLE;
+  }
+  function shortModel(m) {
+    return m.replace('claude-','').replace(/-\d{8}$/,'');
+  }
+
+  const STACKED_BAR_CFG = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: { display: false },
+      legend: {
+        display: true,
+        position: 'bottom',
+        labels: {
+          color: C.MUTED,
+          font: { size: 10, family: 'ui-monospace,monospace' },
+          boxWidth: 10,
+          boxHeight: 10,
+          padding: 10,
+        }
+      },
       tooltip: {
         backgroundColor: C.TIP_BG,
         borderColor: C.TIP_BD,
         borderWidth: 1,
         titleColor: '#e2e2e2',
         bodyColor: '#9ca3af',
-        callbacks: { label: ctx => ' $' + ctx.parsed.y.toFixed(4) }
+        callbacks: {
+          label: ctx => ' ' + shortModel(ctx.dataset.label) + ': $' + ctx.parsed.y.toFixed(2)
+        }
       }
     },
     scales: {
       x: {
+        stacked: true,
         ticks: { color: C.MUTED, font: { size: 10, family: 'ui-monospace,monospace' }, maxRotation: 0 },
         grid: { color: C.GRID }
       },
       y: {
+        stacked: true,
         ticks: { color: C.MUTED, font: { size: 10, family: 'ui-monospace,monospace' }, callback: v => '$'+v.toFixed(2) },
         grid: { color: C.GRID }
       }
@@ -222,17 +255,26 @@
 
   const charts = {};
 
-  function mkBar(id, labels, values) {
+  // Build stacked datasets from model_series
+  function mkStackedBar(id, labels, series, valueKey) {
     const canvas = document.getElementById(id);
     if (!canvas) return;
     if (charts[id]) charts[id].destroy();
+
+    const datasets = (series || []).map(s => ({
+      label: s.model,
+      data: s[valueKey],
+      backgroundColor: modelColor(s.model, '99'),
+      borderColor: modelColorSolid(s.model),
+      borderWidth: 1,
+      borderRadius: 2,
+      hoverBackgroundColor: modelColor(s.model, 'dd'),
+    }));
+
     charts[id] = new Chart(canvas, {
       type: 'bar',
-      data: {
-        labels,
-        datasets: [{ data: values, backgroundColor: C.ACCENT+'55', borderColor: C.ACCENT, borderWidth: 1, borderRadius: 2, hoverBackgroundColor: C.ACCENT+'99' }]
-      },
-      options: BAR_CFG
+      data: { labels, datasets },
+      options: STACKED_BAR_CFG,
     });
   }
 
@@ -268,9 +310,20 @@
     const hourly = document.getElementById('chart-hourly');
     const donut  = document.getElementById('chart-donut');
 
-    if (daily)  mkBar('chart-daily',  JSON.parse(daily.dataset.labels),  JSON.parse(daily.dataset.values));
-    if (hourly) mkBar('chart-hourly', JSON.parse(hourly.dataset.labels), JSON.parse(hourly.dataset.values));
-    if (donut)  mkDonut('chart-donut', JSON.parse(donut.dataset.labels), JSON.parse(donut.dataset.values));
+    const hourLabels = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+':00');
+
+    if (daily) {
+      const labels = JSON.parse(daily.dataset.labels);
+      const series = JSON.parse(daily.dataset.series || '[]');
+      mkStackedBar('chart-daily', labels, series, 'daily');
+    }
+    if (hourly) {
+      const series = JSON.parse(hourly.dataset.series || '[]');
+      mkStackedBar('chart-hourly', hourLabels, series, 'hourly');
+    }
+    if (donut) {
+      mkDonut('chart-donut', JSON.parse(donut.dataset.labels), JSON.parse(donut.dataset.values));
+    }
   }
 
   document.addEventListener('DOMContentLoaded', initCharts);
@@ -282,63 +335,64 @@
     const ws = new WebSocket(wsURL);
 
     ws.onopen = () => console.log('[cctrack] WS connected');
-    ws.onclose = () => {
-      console.log('[cctrack] WS closed — reconnecting in 3s');
-      setTimeout(connectWS, 3000);
-    };
+    ws.onclose = () => { setTimeout(connectWS, 3000); };
     ws.onerror = () => ws.close();
 
     ws.onmessage = evt => {
       let d;
       try { d = JSON.parse(evt.data); } catch { return; }
       updateStats(d);
-      updateCharts(d);
+      updateStackedCharts(d);
+      updateDonut(d);
     };
   }
 
   function fmt(v) {
-    if (v >= 100) return '$' + v.toFixed(2);
-    if (v >= 1)   return '$' + v.toFixed(2);
-    return '$' + v.toFixed(4);
-  }
-
-  function fmtTok(n) {
-    if (n >= 1e9) return (n/1e9).toFixed(1)+'B';
-    if (n >= 1e6) return (n/1e6).toFixed(1)+'M';
-    if (n >= 1e3) return (n/1e3).toFixed(1)+'K';
-    return String(n);
+    return v >= 1 ? '$' + v.toFixed(2) : '$' + v.toFixed(4);
   }
 
   function updateStats(d) {
-    const map = {
-      'stat-today':     d.today,
-      'stat-week':      d.week,
-      'stat-month':     d.month,
-      'stat-projected': d.projected,
-    };
+    const map = { 'stat-today': d.today, 'stat-week': d.week, 'stat-month': d.month, 'stat-projected': d.projected };
     for (const [id, s] of Object.entries(map)) {
       const el = document.getElementById(id);
       if (el && s) el.textContent = fmt(s.cost);
     }
   }
 
-  function updateCharts(d) {
+  function updateStackedCharts(d) {
+    const series = d.model_series || [];
+    const hourLabels = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+':00');
+
     // Daily
     if (d.daily_spend && charts['chart-daily']) {
       const labels = d.daily_spend.map(x => {
-        const t = new Date(x.date);
-        return t.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+        const [y,m,day] = x.date.split('-');
+        return new Date(+y,+m-1,+day).toLocaleDateString('en-US',{month:'short',day:'numeric'});
       });
       charts['chart-daily'].data.labels = labels;
-      charts['chart-daily'].data.datasets[0].data = d.daily_spend.map(x => x.cost);
+      charts['chart-daily'].data.datasets = series.map(s => ({
+        label: s.model,
+        data: s.daily,
+        backgroundColor: modelColor(s.model,'99'),
+        borderColor: modelColorSolid(s.model),
+        borderWidth: 1, borderRadius: 2,
+      }));
       charts['chart-daily'].update('none');
     }
     // Hourly
-    if (d.hourly_spend && charts['chart-hourly']) {
-      charts['chart-hourly'].data.datasets[0].data = d.hourly_spend;
+    if (charts['chart-hourly']) {
+      charts['chart-hourly'].data.datasets = series.map(s => ({
+        label: s.model,
+        data: s.hourly,
+        backgroundColor: modelColor(s.model,'99'),
+        borderColor: modelColorSolid(s.model),
+        borderWidth: 1, borderRadius: 2,
+      }));
       charts['chart-hourly'].update('none');
     }
-    // Donut
+  }
+
+  function updateDonut(d) {
     if (d.cost_breakdown && charts['chart-donut']) {
       const b = d.cost_breakdown;
       charts['chart-donut'].data.datasets[0].data = [b.input, b.output, b.cache_read, b.cache_write];

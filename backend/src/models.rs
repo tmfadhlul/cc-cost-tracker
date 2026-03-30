@@ -63,6 +63,7 @@ pub struct OverviewResponse {
     pub projected: CostSummary,
     pub daily_spend: Vec<DailySpend>,
     pub hourly_spend: Vec<f64>,
+    pub model_series: Vec<ModelSeries>,
     pub cost_breakdown: CostBreakdown,
     pub model_breakdown: Vec<ModelBreakdown>,
     pub activity_heatmap: Vec<HeatmapCell>,
@@ -82,6 +83,13 @@ pub struct CostSummary {
 pub struct DailySpend {
     pub date: String,
     pub cost: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct ModelSeries {
+    pub model: String,
+    pub daily: Vec<f64>,   // 14 values aligned with daily_spend dates
+    pub hourly: Vec<f64>,  // 24 values, index = hour of day
 }
 
 #[derive(Debug, Clone, Serialize, Default)]

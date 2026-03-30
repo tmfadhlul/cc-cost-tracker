@@ -37,6 +37,10 @@ pub fn build_overview(state: &AppState) -> OverviewResponse {
     let mut model_sessions: HashMap<String, HashSet<String>> = HashMap::new();
     let mut daily_map: HashMap<String, f64> = HashMap::new();
     let mut hourly = vec![0.0f64; 24];
+    // per-model: model → date → cost
+    let mut model_daily: HashMap<String, HashMap<String, f64>> = HashMap::new();
+    // per-model: model → 24 hourly values
+    let mut model_hourly: HashMap<String, Vec<f64>> = HashMap::new();
 
     for r in &state.records {
         let cost = r.total_cost;
@@ -63,21 +67,42 @@ pub fn build_overview(state: &AppState) -> OverviewResponse {
         hourly[hour as usize] += cost;
 
         let date = r.timestamp.format("%Y-%m-%d").to_string();
-        *daily_map.entry(date).or_default() += cost;
+        *daily_map.entry(date.clone()).or_default() += cost;
 
         *model_cost.entry(r.model.clone()).or_default() += cost;
         model_sessions.entry(r.model.clone()).or_default().insert(r.session_id.clone());
+
+        // per-model daily + hourly
+        *model_daily.entry(r.model.clone()).or_default().entry(date).or_default() += cost;
+        let mh = model_hourly.entry(r.model.clone()).or_insert_with(|| vec![0.0; 24]);
+        mh[hour as usize] += cost;
     }
 
     // Daily spend — last 14 days
-    let daily_spend: Vec<DailySpend> = (0..14i64)
+    let dates_14: Vec<String> = (0..14i64)
         .rev()
-        .map(|i| {
-            let date = (now - Duration::days(i)).format("%Y-%m-%d").to_string();
-            let cost = *daily_map.get(&date).unwrap_or(&0.0);
-            DailySpend { date, cost }
+        .map(|i| (now - Duration::days(i)).format("%Y-%m-%d").to_string())
+        .collect();
+
+    let daily_spend: Vec<DailySpend> = dates_14
+        .iter()
+        .map(|date| DailySpend { date: date.clone(), cost: *daily_map.get(date).unwrap_or(&0.0) })
+        .collect();
+
+    // Model series (sorted by all-time cost desc — opus first)
+    let mut model_series: Vec<ModelSeries> = model_daily
+        .iter()
+        .map(|(model, date_map)| {
+            let daily = dates_14.iter().map(|d| *date_map.get(d).unwrap_or(&0.0)).collect();
+            let hourly = model_hourly.get(model).cloned().unwrap_or_else(|| vec![0.0; 24]);
+            ModelSeries { model: model.clone(), daily, hourly }
         })
         .collect();
+    model_series.sort_by(|a, b| {
+        let ca: f64 = a.daily.iter().sum::<f64>() + a.hourly.iter().sum::<f64>();
+        let cb: f64 = b.daily.iter().sum::<f64>() + b.hourly.iter().sum::<f64>();
+        cb.partial_cmp(&ca).unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Model breakdown
     let total_cost: f64 = model_cost.values().sum();
@@ -116,6 +141,7 @@ pub fn build_overview(state: &AppState) -> OverviewResponse {
         projected: CostSummary { cost: projected_cost, ..Default::default() },
         daily_spend,
         hourly_spend: hourly,
+        model_series,
         cost_breakdown: breakdown,
         model_breakdown,
         activity_heatmap,
