@@ -1,12 +1,32 @@
 use crate::models::*;
-use chrono::{Datelike, Duration, Local, Timelike, Utc};
+use chrono::{Datelike, Duration, Local, TimeZone, Timelike, Utc};
 use std::collections::{HashMap, HashSet};
 
 pub fn build_overview(state: &AppState) -> OverviewResponse {
     let now = Utc::now();
-    let today_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
-    let week_start  = today_start - Duration::days(now.weekday().num_days_from_sunday() as i64);
-    let month_start = now.date_naive().with_day(1).unwrap().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    // Use local midnight for period boundaries so "today/week/month"
+    // match the user's clock, not UTC.
+    let now_local = now.with_timezone(&Local);
+    let local_date = now_local.date_naive();
+
+    let today_start = Local
+        .from_local_datetime(&local_date.and_hms_opt(0, 0, 0).unwrap())
+        .unwrap()
+        .with_timezone(&Utc);
+    let week_start = Local
+        .from_local_datetime(
+            &(local_date - Duration::days(now_local.weekday().num_days_from_sunday() as i64))
+                .and_hms_opt(0, 0, 0)
+                .unwrap(),
+        )
+        .unwrap()
+        .with_timezone(&Utc);
+    let month_start = Local
+        .from_local_datetime(
+            &local_date.with_day(1).unwrap().and_hms_opt(0, 0, 0).unwrap(),
+        )
+        .unwrap()
+        .with_timezone(&Utc);
 
     let mut today  = CostSummary::default();
     let mut week   = CostSummary::default();
