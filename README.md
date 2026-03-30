@@ -2,7 +2,7 @@
 
 Real-time cost tracker for [Claude Code](https://claude.ai/code). Shows what you would pay at pay-as-you-go API rates, broken down by project, model, and token type — updated live as you work.
 
-![Dashboard](https://www.ksred.com/content/images/2026/02/cctrack-dashboard.png)
+![Dashboard](screenshot.png)
 
 ---
 
