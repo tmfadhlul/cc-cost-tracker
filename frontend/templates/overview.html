@@ -64,7 +64,8 @@
 
   <div class="card">
     <div class="card-title">Daily Spend — Last 14 Days</div>
-    <div style="height:190px;position:relative;">
+    <div id="legend-daily" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;min-height:16px;"></div>
+    <div style="height:180px;position:relative;">
       <canvas id="chart-daily"
         data-labels='{{dailyLabels $d.DailySpend | jsonMarshal}}'
         data-series='{{jsonMarshal $d.ModelSeries}}'></canvas>
@@ -73,7 +74,8 @@
 
   <div class="card">
     <div class="card-title">Spend by Hour</div>
-    <div style="height:190px;position:relative;">
+    <div id="legend-hourly" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;min-height:16px;"></div>
+    <div style="height:180px;position:relative;">
       <canvas id="chart-hourly"
         data-labels='{{hourLabels | jsonMarshal}}'
         data-series='{{jsonMarshal $d.ModelSeries}}'></canvas>
@@ -213,69 +215,79 @@
     return m.replace('claude-','').replace(/-\d{8}$/,'');
   }
 
-  const STACKED_BAR_CFG = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        display: true,
-        position: 'bottom',
-        labels: {
-          color: C.MUTED,
-          font: { size: 10, family: 'ui-monospace,monospace' },
-          boxWidth: 10,
-          boxHeight: 10,
-          padding: 10,
+  // Create fresh options per chart — never share the same object between Chart instances
+  function stackedBarOpts() {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: { display: false },  // we render our own legend divs
+        tooltip: {
+          backgroundColor: C.TIP_BG,
+          borderColor: C.TIP_BD,
+          borderWidth: 1,
+          titleColor: '#e2e2e2',
+          bodyColor: '#9ca3af',
+          callbacks: {
+            label: ctx => ' ' + shortModel(ctx.dataset.label) + ': $' + ctx.parsed.y.toFixed(2)
+          }
         }
       },
-      tooltip: {
-        backgroundColor: C.TIP_BG,
-        borderColor: C.TIP_BD,
-        borderWidth: 1,
-        titleColor: '#e2e2e2',
-        bodyColor: '#9ca3af',
-        callbacks: {
-          label: ctx => ' ' + shortModel(ctx.dataset.label) + ': $' + ctx.parsed.y.toFixed(2)
+      scales: {
+        x: {
+          stacked: true,
+          ticks: { color: C.MUTED, font: { size: 10, family: 'ui-monospace,monospace' }, maxRotation: 0 },
+          grid: { color: C.GRID }
+        },
+        y: {
+          stacked: true,
+          ticks: { color: C.MUTED, font: { size: 10, family: 'ui-monospace,monospace' }, callback: v => '$'+v.toFixed(2) },
+          grid: { color: C.GRID }
         }
       }
-    },
-    scales: {
-      x: {
-        stacked: true,
-        ticks: { color: C.MUTED, font: { size: 10, family: 'ui-monospace,monospace' }, maxRotation: 0 },
-        grid: { color: C.GRID }
-      },
-      y: {
-        stacked: true,
-        ticks: { color: C.MUTED, font: { size: 10, family: 'ui-monospace,monospace' }, callback: v => '$'+v.toFixed(2) },
-        grid: { color: C.GRID }
-      }
-    }
-  };
+    };
+  }
 
   const charts = {};
 
-  // Build stacked datasets from model_series
-  function mkStackedBar(id, labels, series, valueKey) {
+  // Render a small custom legend into legendId div
+  function renderLegend(legendId, series) {
+    const el = document.getElementById(legendId);
+    if (!el) return;
+    el.innerHTML = (series || []).map(s =>
+      `<span style="display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--txt2);">
+        <span style="width:10px;height:10px;border-radius:2px;background:${modelColorSolid(s.model)};flex-shrink:0;"></span>
+        ${shortModel(s.model)}
+      </span>`
+    ).join('');
+  }
+
+  // Build stacked bar chart with model layers
+  function mkStackedBar(id, legendId, labels, series, valueKey) {
     const canvas = document.getElementById(id);
     if (!canvas) return;
-    if (charts[id]) charts[id].destroy();
+    if (charts[id]) { try { charts[id].destroy(); } catch(_) {} }
 
     const datasets = (series || []).map(s => ({
       label: s.model,
-      data: s[valueKey],
+      data: s[valueKey] || [],
       backgroundColor: modelColor(s.model, '99'),
       borderColor: modelColorSolid(s.model),
       borderWidth: 1,
       borderRadius: 2,
-      hoverBackgroundColor: modelColor(s.model, 'dd'),
     }));
 
-    charts[id] = new Chart(canvas, {
-      type: 'bar',
-      data: { labels, datasets },
-      options: STACKED_BAR_CFG,
-    });
+    try {
+      charts[id] = new Chart(canvas, {
+        type: 'bar',
+        data: { labels, datasets },
+        options: stackedBarOpts(),
+      });
+      renderLegend(legendId, series);
+    } catch(e) {
+      console.error('[cctrack] chart error:', id, e);
+    }
   }
 
   function mkDonut(id, labels, values) {
@@ -309,21 +321,28 @@
     const daily  = document.getElementById('chart-daily');
     const hourly = document.getElementById('chart-hourly');
     const donut  = document.getElementById('chart-donut');
-
     const hourLabels = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+':00');
 
-    if (daily) {
-      const labels = JSON.parse(daily.dataset.labels);
-      const series = JSON.parse(daily.dataset.series || '[]');
-      mkStackedBar('chart-daily', labels, series, 'daily');
-    }
-    if (hourly) {
-      const series = JSON.parse(hourly.dataset.series || '[]');
-      mkStackedBar('chart-hourly', hourLabels, series, 'hourly');
-    }
-    if (donut) {
-      mkDonut('chart-donut', JSON.parse(donut.dataset.labels), JSON.parse(donut.dataset.values));
-    }
+    try {
+      if (daily) {
+        const labels = JSON.parse(daily.dataset.labels || '[]');
+        const series = JSON.parse(daily.dataset.series || '[]');
+        mkStackedBar('chart-daily', 'legend-daily', labels, series, 'daily');
+      }
+    } catch(e) { console.error('[cctrack] daily chart:', e); }
+
+    try {
+      if (hourly) {
+        const series = JSON.parse(hourly.dataset.series || '[]');
+        mkStackedBar('chart-hourly', 'legend-hourly', hourLabels, series, 'hourly');
+      }
+    } catch(e) { console.error('[cctrack] hourly chart:', e); }
+
+    try {
+      if (donut) {
+        mkDonut('chart-donut', JSON.parse(donut.dataset.labels), JSON.parse(donut.dataset.values));
+      }
+    } catch(e) { console.error('[cctrack] donut chart:', e); }
   }
 
   document.addEventListener('DOMContentLoaded', initCharts);
@@ -361,9 +380,7 @@
 
   function updateStackedCharts(d) {
     const series = d.model_series || [];
-    const hourLabels = Array.from({length:24}, (_,i) => String(i).padStart(2,'0')+':00');
 
-    // Daily
     if (d.daily_spend && charts['chart-daily']) {
       const labels = d.daily_spend.map(x => {
         const [y,m,day] = x.date.split('-');
@@ -371,21 +388,17 @@
       });
       charts['chart-daily'].data.labels = labels;
       charts['chart-daily'].data.datasets = series.map(s => ({
-        label: s.model,
-        data: s.daily,
-        backgroundColor: modelColor(s.model,'99'),
-        borderColor: modelColorSolid(s.model),
+        label: s.model, data: s.daily,
+        backgroundColor: modelColor(s.model,'99'), borderColor: modelColorSolid(s.model),
         borderWidth: 1, borderRadius: 2,
       }));
       charts['chart-daily'].update('none');
+      renderLegend('legend-daily', series);
     }
-    // Hourly
     if (charts['chart-hourly']) {
       charts['chart-hourly'].data.datasets = series.map(s => ({
-        label: s.model,
-        data: s.hourly,
-        backgroundColor: modelColor(s.model,'99'),
-        borderColor: modelColorSolid(s.model),
+        label: s.model, data: s.hourly,
+        backgroundColor: modelColor(s.model,'99'), borderColor: modelColorSolid(s.model),
         borderWidth: 1, borderRadius: 2,
       }));
       charts['chart-hourly'].update('none');
