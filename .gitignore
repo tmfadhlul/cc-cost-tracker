@@ -1,0 +1,17 @@
+# Rust
+backend/target/
+
+# Go
+frontend/cc-cost-frontend
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
