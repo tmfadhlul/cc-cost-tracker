@@ -17,6 +17,7 @@ When working on this project:
 ## Key Rules
 - The tracker reads `~/.claude/projects/**/*.jsonl` — never write to those files
 - Deduplication is GLOBAL across files (shared `seen` map in `parser.rs`) — do not scope it per-file
+- Nested repo categorization is based on detecting nested `.git` roots under the workspace, then mapping touched files into those repos
 - Period boundaries (today/week/month) use LOCAL timezone, not UTC — keep it that way
 - Chart.js options must never be shared between chart instances — always call `stackedBarOpts()` to get a fresh object
 - Costs are pay-as-you-go equivalent, not actual billing — make this clear in any UI copy

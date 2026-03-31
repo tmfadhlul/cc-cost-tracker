@@ -188,22 +188,46 @@ fn build_sessions_inner(state: &AppState, limit: usize) -> Vec<SessionSummary> {
 }
 
 pub fn build_projects(state: &AppState) -> Vec<ProjectSummary> {
-    let mut map: HashMap<String, (f64, HashSet<String>, HashSet<String>)> = HashMap::new();
+    let mut map: HashMap<String, (f64, HashSet<String>, HashSet<String>, HashMap<String, (f64, HashSet<String>, HashSet<String>)>)> = HashMap::new();
 
     for r in &state.records {
         let e = map.entry(r.project.clone()).or_default();
         e.0 += r.total_cost;
         e.1.insert(r.session_id.clone());
         e.2.insert(r.model.clone());
+
+        if !r.subprojects.is_empty() {
+            let share = r.total_cost / r.subprojects.len() as f64;
+            for subproject in &r.subprojects {
+                let sub = e.3.entry(subproject.clone()).or_default();
+                sub.0 += share;
+                sub.1.insert(r.session_id.clone());
+                sub.2.insert(r.model.clone());
+            }
+        }
     }
 
     let mut projects: Vec<ProjectSummary> = map
         .into_iter()
-        .map(|(name, (total_cost, sessions, models))| ProjectSummary {
-            name,
-            total_cost,
-            sessions: sessions.len(),
-            models: models.into_iter().collect(),
+        .map(|(name, (total_cost, sessions, models, subprojects))| {
+            let mut subprojects: Vec<SubprojectSummary> = subprojects
+                .into_iter()
+                .map(|(name, (total_cost, sessions, models))| SubprojectSummary {
+                    name,
+                    total_cost,
+                    sessions: sessions.len(),
+                    models: models.into_iter().collect(),
+                })
+                .collect();
+            subprojects.sort_by(|a, b| b.total_cost.partial_cmp(&a.total_cost).unwrap_or(std::cmp::Ordering::Equal));
+
+            ProjectSummary {
+                name,
+                total_cost,
+                sessions: sessions.len(),
+                models: models.into_iter().collect(),
+                subprojects,
+            }
         })
         .collect();
     projects.sort_by(|a, b| b.total_cost.partial_cmp(&a.total_cost).unwrap_or(std::cmp::Ordering::Equal));

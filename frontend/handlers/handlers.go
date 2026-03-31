@@ -80,6 +80,14 @@ type ProjectSummary struct {
 	TotalCost float64  `json:"total_cost"`
 	Sessions  int      `json:"sessions"`
 	Models    []string `json:"models"`
+	Subprojects []SubprojectSummary `json:"subprojects"`
+}
+
+type SubprojectSummary struct {
+	Name      string   `json:"name"`
+	TotalCost float64  `json:"total_cost"`
+	Sessions  int      `json:"sessions"`
+	Models    []string `json:"models"`
 }
 
 type RateEntry struct {

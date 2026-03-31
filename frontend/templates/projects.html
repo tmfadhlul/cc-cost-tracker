@@ -5,6 +5,7 @@
   <table class="data-table">
     <thead>
       <tr>
+        <th></th>
         <th>Project</th>
         <th>Models</th>
         <th class="r">Sessions</th>
@@ -13,9 +14,20 @@
     </thead>
     <tbody>
       {{range .Projects}}
-      <tr>
+      {{$project := .}}
+      <tr class="project-parent-row" data-project="{{.Name}}">
+        <td class="project-expander-cell">
+          {{if .Subprojects}}
+          <button type="button" class="project-expander" data-project-toggle="{{.Name}}" aria-expanded="false" title="Toggle subprojects">&gt;</button>
+          {{end}}
+        </td>
         <td>
+          {{if .Subprojects}}
+          <div class="mono" style="font-size:12.5px;">{{.Name}}</div>
+          <div class="project-submeta dim">{{len .Subprojects}} subprojects</div>
+          {{else}}
           <span class="mono" style="font-size:12.5px;">{{.Name}}</span>
+          {{end}}
         </td>
         <td>
           {{range .Models}}<span class="badge" style="margin-right:4px;">{{shortModel .}}</span>{{end}}
@@ -23,6 +35,21 @@
         <td class="r mono dim">{{.Sessions}}</td>
         <td class="r mono accent" style="font-weight:600;font-size:14px;">{{fmtCost .TotalCost}}</td>
       </tr>
+      {{if .Subprojects}}
+      {{range .Subprojects}}
+      <tr class="project-subrow" data-project-child="{{$project.Name}}" hidden>
+        <td></td>
+        <td>
+          <div class="project-name mono dim" style="font-size:11.5px;">{{.Name}}</div>
+        </td>
+        <td>
+          {{range .Models}}<span class="badge" style="margin-right:4px;">{{shortModel .}}</span>{{end}}
+        </td>
+        <td class="r mono dim">{{.Sessions}}</td>
+        <td class="r mono accent" style="font-size:11.5px;">{{fmtCost .TotalCost}}</td>
+      </tr>
+      {{end}}
+      {{end}}
       {{end}}
     </tbody>
   </table>
@@ -30,4 +57,30 @@
   <div class="empty">No projects found. Make sure the Rust backend is running.</div>
   {{end}}
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const toggles = Array.from(document.querySelectorAll('[data-project-toggle]'));
+
+  toggles.forEach(function (toggle) {
+    toggle.addEventListener('click', function () {
+      const project = toggle.getAttribute('data-project-toggle');
+      const parentRow = toggle.closest('.project-parent-row');
+      const childRows = Array.from(document.querySelectorAll('[data-project-child]')).filter(function (row) {
+        return row.getAttribute('data-project-child') === project;
+      });
+      const isExpanded = toggle.getAttribute('aria-expanded') === 'true';
+      const nextExpanded = !isExpanded;
+
+      toggle.setAttribute('aria-expanded', String(nextExpanded));
+      if (parentRow) {
+        parentRow.classList.toggle('is-expanded', nextExpanded);
+      }
+
+      childRows.forEach(function (row) {
+        row.hidden = !nextExpanded;
+      });
+    });
+  });
+});
+</script>
 {{end}}
