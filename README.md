@@ -96,7 +96,10 @@ Model date suffixes (e.g. `claude-opus-4-6-20250514`) are stripped automatically
 ## Notes on accuracy
 
 - **Deduplication**: Claude Code streams each API response as multiple JSONL events sharing a `requestId`, each with cumulative token totals. cc-cost keeps only the final event per request. The same `requestId` can also appear in both a session file and its subagent file — cc-cost deduplicates globally across all files.
-- **Nested repos**: If a workspace contains multiple Git repositories, cc-cost keeps the parent workspace total and also breaks it down into subprojects by looking at the file paths touched in Claude tool calls. Requests that touch multiple subprojects are split evenly so the subproject totals add back up to the parent project total.
+- **Nested repos**: If a workspace contains multiple Git repositories, cc-cost detects subprojects by scanning for nested `.git` directories under the workspace root. It keeps the parent workspace total and breaks usage down into those subprojects using file paths touched in Claude tool calls. Requests that touch multiple subprojects are split evenly so the subproject totals add back up to the parent project total.
+
+  ![Nested Repo Breakdown](screenshot-nested.png)
+
 - **Scope**: Only captures Claude Code CLI sessions (`~/.claude/projects/`). Programmatic API calls from your own services do not appear here.
 - **Pricing**: Uses public list prices. Actual console billing may differ slightly due to pricing updates or rounding.
 
