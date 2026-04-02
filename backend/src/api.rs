@@ -133,9 +133,10 @@ pub fn build_overview(state: &AppState) -> OverviewResponse {
         .map(|(date, (cost, projects))| HeatmapCell { date, cost, projects })
         .collect();
 
-    // Projected month cost
+    // Projected month cost — use local time for month/year so GMT+7 users
+    // don't get March's day-count when it's already April locally.
     let elapsed_secs = (now - month_start).num_seconds() as f64;
-    let days_in_month = days_in_month(now.year(), now.month()) as f64;
+    let days_in_month = days_in_month(now_local.year(), now_local.month()) as f64;
     let projected_cost = if elapsed_secs > 0.0 {
         (month.cost / elapsed_secs) * days_in_month * 86400.0
     } else {
