@@ -32,7 +32,7 @@ pub fn build_overview(state: &AppState) -> OverviewResponse {
     let mut week   = CostSummary::default();
     let mut month  = CostSummary::default();
     let mut breakdown = CostBreakdown::default();
-    let heatmap_window_start = now - Duration::days(30);
+    let heatmap_window_start = now - Duration::days(365);
     let mut heatmap: HashMap<String, (f64, HashMap<String, f64>)> = HashMap::new();
     let mut model_cost: HashMap<String, f64> = HashMap::new();
     let mut model_sessions: HashMap<String, HashSet<String>> = HashMap::new();
@@ -150,6 +150,8 @@ pub fn build_overview(state: &AppState) -> OverviewResponse {
         week,
         month,
         projected: CostSummary { cost: projected_cost, ..Default::default() },
+        week_start_label: week_start.with_timezone(&Local).format("%b %-d").to_string(),
+        month_start_label: month_start.with_timezone(&Local).format("%b %-d").to_string(),
         daily_spend,
         hourly_spend: hourly.clone(),
         hourly_labels: (0..24u32)

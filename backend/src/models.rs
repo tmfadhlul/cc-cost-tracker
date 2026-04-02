@@ -88,6 +88,8 @@ pub struct OverviewResponse {
     pub week: CostSummary,
     pub month: CostSummary,
     pub projected: CostSummary,
+    pub week_start_label: String,
+    pub month_start_label: String,
     pub daily_spend: Vec<DailySpend>,
     pub hourly_spend: Vec<f64>,
     pub hourly_labels: Vec<String>,

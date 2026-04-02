@@ -66,6 +66,8 @@ type OverviewData struct {
 	Week            CostSummary      `json:"week"`
 	Month           CostSummary      `json:"month"`
 	Projected       CostSummary      `json:"projected"`
+	WeekStartLabel  string           `json:"week_start_label"`
+	MonthStartLabel string           `json:"month_start_label"`
 	DailySpend      []DailySpend     `json:"daily_spend"`
 	HourlySpend     []float64        `json:"hourly_spend"`
 	HourlyLabels    []string         `json:"hourly_labels"`

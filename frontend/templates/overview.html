@@ -21,7 +21,7 @@
 
   {{/* This Week */}}
   <div class="card" style="position:relative;overflow:hidden;">
-    <div class="card-title">This Week</div>
+    <div class="card-title">This Week <span style="font-size:10px;font-weight:400;opacity:0.45;">({{$d.WeekStartLabel}} – now)</span></div>
     <div class="mono accent" style="font-size:28px;font-weight:700;letter-spacing:-.5px;">{{fmtCost $d.Week.Cost}}</div>
     <div style="margin-top:8px;display:flex;flex-direction:column;gap:3px;">
       <div class="dim" style="font-size:11px;">{{fmtTokens $d.Week.InputTokens}} input · {{fmtTokens $d.Week.OutputTokens}} output</div>
@@ -34,7 +34,7 @@
 
   {{/* This Month */}}
   <div class="card" style="position:relative;overflow:hidden;">
-    <div class="card-title">This Month</div>
+    <div class="card-title">This Month <span style="font-size:10px;font-weight:400;opacity:0.45;">({{$d.MonthStartLabel}} – now)</span></div>
     <div class="mono accent" style="font-size:28px;font-weight:700;letter-spacing:-.5px;">{{fmtCost $d.Month.Cost}}</div>
     <div style="margin-top:8px;display:flex;flex-direction:column;gap:3px;">
       <div class="dim" style="font-size:11px;">{{fmtTokens $d.Month.InputTokens}} input · {{fmtTokens $d.Month.OutputTokens}} output</div>
@@ -422,7 +422,7 @@
 
 
 {{define "heatmap"}}
-{{/* ActivityHeatmap is []HeatmapCell{date, cost, projects} — last 30 days */}}
+{{/* ActivityHeatmap is []HeatmapCell{date, cost, projects} — last 12 months */}}
 <div style="display:flex;align-items:flex-start;gap:0;user-select:none;">
   <div id="heatmap-daylabels" style="display:flex;flex-direction:column;gap:4px;padding-top:20px;margin-right:5px;min-width:24px;flex-shrink:0;"></div>
   <div id="heatmap-ghgrid" style="display:grid;grid-template-rows:16px repeat(7,16px);grid-auto-columns:16px;grid-auto-flow:column;gap:4px;"></div>
@@ -477,15 +477,16 @@ function buildHeatmap(cells) {
     tip.style.left = x + 'px'; tip.style.top = y + 'px';
   }
 
-  // Last 30 days in local time
+  // Last 12 months in local time (~365 days)
   const today = new Date();
   const dates30 = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-    const key = d.getFullYear() + '-' +
-      String(d.getMonth()+1).padStart(2,'0') + '-' +
-      String(d.getDate()).padStart(2,'0');
-    dates30.push({d, key});
+  const windowStart = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate() + 1);
+  for (let d = new Date(windowStart); d <= today; d.setDate(d.getDate() + 1)) {
+    const cur = new Date(d);
+    const key = cur.getFullYear() + '-' +
+      String(cur.getMonth()+1).padStart(2,'0') + '-' +
+      String(cur.getDate()).padStart(2,'0');
+    dates30.push({d: cur, key});
   }
 
   // Pad to start of first week (Sunday = 0)
