@@ -1,4 +1,4 @@
-.PHONY: install install-rust install-go build build-backend build-frontend dev run run-backend run-frontend clean open install-service uninstall-service service-status
+.PHONY: install install-rust install-go build build-backend build-frontend dev run run-backend run-frontend run-proxy clean open install-service uninstall-service service-status
 
 BACKEND_DIR  := backend
 FRONTEND_DIR := frontend
@@ -106,6 +106,10 @@ run-backend:
 run-frontend:
 	@cd $(FRONTEND_DIR) && go run .
 
+run-proxy:
+	@echo "Starting Anthropic API proxy on http://127.0.0.1:4001..."
+	@python3 proxy/proxy.py
+
 # ── Open browser ──────────────────────────────────────────────────────────────
 
 open:
@@ -135,6 +139,8 @@ ifeq ($(UNAME), Darwin)
 		"$(FRONTEND_ABS)" "$(PROJECT_DIR)" "$(HOME)" "$(HOME)" > $(FRONTEND_PLIST)
 	@launchctl unload $(BACKEND_PLIST)  2>/dev/null || true
 	@launchctl unload $(FRONTEND_PLIST) 2>/dev/null || true
+	@lsof -ti :8080   2>/dev/null | xargs kill -9 2>/dev/null || true
+	@lsof -ti :45123  2>/dev/null | xargs kill -9 2>/dev/null || true
 	@launchctl load -w $(BACKEND_PLIST)
 	@launchctl load -w $(FRONTEND_PLIST)
 	@echo ""
@@ -152,6 +158,9 @@ else ifeq ($(UNAME), Linux)
 	@printf '[Unit]\nDescription=cctrack Go frontend\nAfter=cctrack-backend.service\n\n[Service]\nExecStart=%s\nWorkingDirectory=%s\nRestart=always\nRestartSec=3\nStandardOutput=append:%s/.cctrack/frontend.log\nStandardError=append:%s/.cctrack/frontend.log\n\n[Install]\nWantedBy=default.target\n' \
 		"$(FRONTEND_ABS)" "$(PROJECT_DIR)" "$(HOME)" "$(HOME)" > $(SYSTEMD_DIR)/cctrack-frontend.service
 	@systemctl --user daemon-reload
+	@systemctl --user stop cctrack-backend cctrack-frontend 2>/dev/null || true
+	@lsof -ti :8080  2>/dev/null | xargs kill -9 2>/dev/null || true
+	@lsof -ti :45123 2>/dev/null | xargs kill -9 2>/dev/null || true
 	@systemctl --user enable --now cctrack-backend cctrack-frontend
 	@echo ""
 	@echo "Services installed and running at startup."

@@ -11,11 +11,13 @@ When working on this project:
 ## Tech Stack
 - **Rust** (axum, notify, serde, chrono) — `backend/src/`
 - **Go + HTMX** (net/http, html/template) — `frontend/`
+- **Python** proxy for Copilot/Anthropic API tracking — `proxy/proxy.py`
 - **Chart.js** — charts in `frontend/templates/overview.html`
 - **launchd / systemd** — `make install-service`
 
 ## Key Rules
 - The tracker reads `~/.claude/projects/**/*.jsonl` — never write to those files
+- The tracker also reads `~/.cctrack/proxy/*.jsonl` for Copilot proxy logs
 - Deduplication is GLOBAL across files (shared `seen` map in `parser.rs`) — do not scope it per-file
 - Nested repo categorization is based on detecting nested `.git` roots under the workspace, then mapping touched files into those repos
 - Period boundaries (today/week/month) use LOCAL timezone, not UTC — keep it that way
@@ -25,6 +27,7 @@ When working on this project:
 ## Ports
 - Backend: `8080`
 - Frontend: `45123`
+- Proxy: `4001`
 
 ## Logs (when running as service)
 - `~/.cctrack/backend.log`

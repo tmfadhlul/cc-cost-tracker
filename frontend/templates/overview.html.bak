@@ -420,35 +420,30 @@
 </script>
 {{end}}
 
-
 {{define "heatmap"}}
-{{/* ActivityHeatmap is []HeatmapCell{date, cost, projects} — last 30 days */}}
-<div style="display:flex;align-items:flex-start;gap:0;user-select:none;">
-  <div id="heatmap-daylabels" style="display:flex;flex-direction:column;gap:4px;padding-top:20px;margin-right:5px;min-width:24px;flex-shrink:0;"></div>
-  <div id="heatmap-ghgrid" style="display:grid;grid-template-rows:16px repeat(7,16px);grid-auto-columns:16px;grid-auto-flow:column;gap:4px;"></div>
+{{/* ActivityHeatmap is []HeatmapCell{hour, day_of_week, cost, projects} */}}
+<div id="heatmap-wrap" style="position:relative;user-select:none;">
+  <div id="heatmap-ghgrid" style="display:inline-grid;grid-template-columns:28px repeat(24,13px);grid-template-rows:18px repeat(7,13px);gap:3px;align-items:center;"></div>
+  <div style="display:flex;align-items:center;gap:6px;margin-top:9px;font-size:10px;color:var(--txt3);">
+    <span>Less</span>
+    <div id="heat-legend" style="display:flex;gap:3px;"></div>
+    <span>More</span>
+  </div>
 </div>
-<div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:10px;color:var(--txt3);">
-  <span>Less</span>
-  <div id="heat-legend" style="display:flex;gap:3px;"></div>
-  <span>More</span>
-</div>
-<div id="heatmap-tip" style="display:none;position:fixed;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:9px 12px;font-size:11.5px;pointer-events:none;z-index:9999;min-width:160px;max-width:240px;box-shadow:0 6px 20px rgba(0,0,0,.5);"></div>
+<div id="heatmap-tip" style="display:none;position:fixed;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:9px 12px;font-size:11.5px;pointer-events:none;z-index:9999;min-width:155px;max-width:230px;box-shadow:0 6px 20px rgba(0,0,0,.5);"></div>
 <script>
 function buildHeatmap(cells) {
-  const grid      = document.getElementById('heatmap-ghgrid');
-  const dayLabels = document.getElementById('heatmap-daylabels');
-  const tip       = document.getElementById('heatmap-tip');
+  const grid = document.getElementById('heatmap-ghgrid');
+  const tip  = document.getElementById('heatmap-tip');
   if (!grid) return;
   grid.innerHTML = '';
-  if (dayLabels) dayLabels.innerHTML = '';
 
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
   const map = {};
   let maxCost = 0;
   for (const c of (cells || [])) {
-    const k = c.date;
+    const k = c.hour + '-' + c.day_of_week;
     if (!map[k]) map[k] = {cost: 0, projects: {}};
     map[k].cost += c.cost;
     if (c.projects) {
@@ -470,96 +465,72 @@ function buildHeatmap(cells) {
   }
 
   function moveTip(e) {
-    const tw = tip.offsetWidth || 180, th = tip.offsetHeight || 80;
-    let x = e.clientX + 14, y = e.clientY - 10;
+    const tw = tip.offsetWidth  || 170;
+    const th = tip.offsetHeight || 80;
+    let x = e.clientX + 14;
+    let y = e.clientY - 10;
     if (x + tw > window.innerWidth  - 8) x = e.clientX - tw - 14;
     if (y + th > window.innerHeight - 8) y = e.clientY - th - 10;
-    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+    tip.style.left = x + 'px';
+    tip.style.top  = y + 'px';
   }
 
-  // Last 30 days in local time
-  const today = new Date();
-  const dates30 = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-    const key = d.getFullYear() + '-' +
-      String(d.getMonth()+1).padStart(2,'0') + '-' +
-      String(d.getDate()).padStart(2,'0');
-    dates30.push({d, key});
+  // Header row: empty corner + 24 hour labels (every 6h)
+  grid.appendChild(document.createElement('div'));
+  for (let h = 0; h < 24; h++) {
+    const lbl = document.createElement('div');
+    lbl.style.cssText = 'font-size:9px;color:var(--txt3);text-align:center;line-height:18px;';
+    lbl.textContent = (h % 6 === 0) ? String(h).padStart(2,'0') : '';
+    grid.appendChild(lbl);
   }
 
-  // Pad to start of first week (Sunday = 0)
-  const firstDow = dates30[0].d.getDay();
-  const padded = Array(firstDow).fill(null).concat(dates30);
-  while (padded.length % 7 !== 0) padded.push(null);
-  const nWeeks = padded.length / 7;
+  // 7 day rows
+  for (let d = 0; d < 7; d++) {
+    const dayLbl = document.createElement('div');
+    dayLbl.style.cssText = 'font-size:9.5px;color:var(--txt3);text-align:right;padding-right:5px;line-height:13px;';
+    dayLbl.textContent = DAYS[d];
+    grid.appendChild(dayLbl);
 
-  // Day labels: Mon / Wed / Fri only
-  if (dayLabels) {
-    for (let row = 0; row < 7; row++) {
-      const lbl = document.createElement('div');
-      lbl.style.cssText = 'height:16px;line-height:16px;font-size:9.5px;color:var(--txt3);text-align:right;';
-      lbl.textContent = (row === 1 || row === 3 || row === 5) ? DAYS[row] : '';
-      dayLabels.appendChild(lbl);
-    }
-  }
-
-  // Build grid column by column (grid-auto-flow:column, 8 items per col = 1 header + 7 days)
-  let lastMonthShown = -1;
-  for (let col = 0; col < nWeeks; col++) {
-    // Month label header
-    const hdr = document.createElement('div');
-    hdr.style.cssText = 'font-size:9px;color:var(--txt3);white-space:nowrap;line-height:16px;overflow:hidden;';
-    for (let row = 0; row < 7; row++) {
-      const item = padded[col * 7 + row];
-      if (item) {
-        const m = item.d.getMonth();
-        if (m !== lastMonthShown) { hdr.textContent = MONTHS[m]; lastMonthShown = m; }
-        break;
-      }
-    }
-    grid.appendChild(hdr);
-
-    for (let row = 0; row < 7; row++) {
-      const item = padded[col * 7 + row];
-      const cell = document.createElement('div');
-      if (!item) {
-        cell.style.cssText = 'width:16px;height:16px;';
-        grid.appendChild(cell);
-        continue;
-      }
-      const data = map[item.key];
+    for (let h = 0; h < 24; h++) {
+      const data = map[h + '-' + d];
       const cost = data ? data.cost : 0;
-      cell.style.cssText = 'width:16px;height:16px;border-radius:3px;background:' + cellBg(cost) + ';transition:transform .1s;box-sizing:border-box;cursor:default;';
+      const cell = document.createElement('div');
+      cell.style.cssText = 'width:13px;height:13px;border-radius:2px;background:' + cellBg(cost) + ';transition:transform .1s;box-sizing:border-box;';
 
-      if (tip) {
+      if (cost > 0 && tip) {
+        cell.style.cursor = 'pointer';
         cell.addEventListener('mouseenter', function(e) {
-          cell.style.transform = 'scale(1.25)';
-          cell.style.position = 'relative'; cell.style.zIndex = '2';
-          if (cost > 0) cell.style.outline = '1.5px solid rgba(245,166,35,0.85)';
-          const dateStr = item.d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric', year:'numeric'});
-          const projs = data && data.projects
+          cell.style.transform = 'scale(1.4)';
+          cell.style.outline = '1.5px solid rgba(245,166,35,0.9)';
+          cell.style.position = 'relative';
+          cell.style.zIndex = '2';
+          const projs = data.projects
             ? Object.entries(data.projects).sort(function(a,b){return b[1]-a[1];}).slice(0, 7)
             : [];
-          let html = '<div style="font-weight:600;margin-bottom:4px;color:var(--txt1);">' + dateStr + '</div>';
-          html += '<div style="color:' + (cost > 0 ? 'var(--accent)' : 'var(--txt3)') + ';font-weight:700;font-size:13px;margin-bottom:' + (projs.length ? 5 : 0) + 'px;">' + (cost > 0 ? '$' + cost.toFixed(2) : 'No activity') + '</div>';
+          const nextH = (h + 1) % 24;
+          let html = '<div style="font-weight:600;margin-bottom:4px;color:var(--txt1);">' + DAYS[d] + '&nbsp;' + String(h).padStart(2,'0') + ':00&ndash;' + String(nextH).padStart(2,'0') + ':00</div>';
+          html += '<div style="color:var(--accent);font-weight:700;font-size:13px;margin-bottom:' + (projs.length ? 5 : 0) + 'px;">$' + cost.toFixed(4) + '</div>';
           if (projs.length) {
             html += '<div style="border-top:1px solid var(--border);padding-top:5px;display:flex;flex-direction:column;gap:3px;">';
             for (let i = 0; i < projs.length; i++) {
-              const pn = projs[i][0], pc = projs[i][1];
-              const short = pn.length > 24 ? '\u2026' + pn.slice(-22) : pn;
-              html += '<div style="display:flex;justify-content:space-between;gap:8px;"><span style="color:var(--txt2);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + short + '</span><span style="font-family:monospace;font-size:10.5px;white-space:nowrap;">$' + pc.toFixed(2) + '</span></div>';
+              const proj = projs[i][0]; const pcost = projs[i][1];
+              const short = proj.length > 25 ? '\u2026' + proj.slice(-23) : proj;
+              html += '<div style="display:flex;justify-content:space-between;gap:10px;"><span style="color:var(--txt2);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + short + '</span><span style="font-family:monospace;font-size:10.5px;white-space:nowrap;">$' + pcost.toFixed(4) + '</span></div>';
             }
             const extra = Object.keys(data.projects).length - 7;
             if (extra > 0) html += '<div style="font-size:10px;color:var(--txt3);margin-top:1px;">+' + extra + ' more</div>';
             html += '</div>';
           }
-          tip.innerHTML = html; tip.style.display = 'block'; moveTip(e);
+          tip.innerHTML = html;
+          tip.style.display = 'block';
+          moveTip(e);
         });
         cell.addEventListener('mousemove', moveTip);
         cell.addEventListener('mouseleave', function() {
-          cell.style.transform = ''; cell.style.outline = '';
-          cell.style.position = ''; cell.style.zIndex = '';
+          cell.style.transform = '';
+          cell.style.outline = '';
+          cell.style.position = '';
+          cell.style.zIndex = '';
           tip.style.display = 'none';
         });
       }
@@ -567,15 +538,16 @@ function buildHeatmap(cells) {
     }
   }
 
-  // Legend
+  // Legend swatches
   const legend = document.getElementById('heat-legend');
   if (legend) {
     legend.innerHTML = '';
-    [0, 0.15, 0.38, 0.65, 1.0].forEach(function(t) {
+    var stops = [0, 0.15, 0.38, 0.65, 1.0];
+    for (var i = 0; i < stops.length; i++) {
       const s = document.createElement('div');
-      s.style.cssText = 'width:11px;height:11px;border-radius:2px;background:' + cellBg(t * maxCost) + ';';
+      s.style.cssText = 'width:10px;height:10px;border-radius:2px;background:' + cellBg(stops[i] * maxCost) + ';';
       legend.appendChild(s);
-    });
+    }
   }
 }
 buildHeatmap({{jsonMarshal .}});

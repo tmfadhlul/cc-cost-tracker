@@ -41,9 +41,9 @@ type ModelBreakdown struct {
 }
 
 type HeatmapCell struct {
-	Hour      int     `json:"hour"`
-	DayOfWeek int     `json:"day_of_week"`
-	Cost      float64 `json:"cost"`
+	Date     string             `json:"date"`
+	Cost     float64            `json:"cost"`
+	Projects map[string]float64 `json:"projects"`
 }
 
 type SessionSummary struct {
@@ -68,6 +68,7 @@ type OverviewData struct {
 	Projected       CostSummary      `json:"projected"`
 	DailySpend      []DailySpend     `json:"daily_spend"`
 	HourlySpend     []float64        `json:"hourly_spend"`
+	HourlyLabels    []string         `json:"hourly_labels"`
 	ModelSeries     []ModelSeries    `json:"model_series"`
 	CostBreakdown   CostBreakdown    `json:"cost_breakdown"`
 	ModelBreakdown  []ModelBreakdown `json:"model_breakdown"`

@@ -1,7 +1,7 @@
 use crate::cost::{calculate_cost, normalize_model};
-use crate::models::{RawEvent, UsageRecord};
+use crate::models::{ProxyLogEntry, RawEvent, UsageRecord};
 use chrono::{DateTime, Utc};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
@@ -134,6 +134,7 @@ fn event_to_record(event: RawEvent, touched_paths: Vec<String>) -> Option<UsageR
         request_id,
         session_id: event.session_id.unwrap_or_default(),
         project,
+        source: "claude-code".into(),
         workspace_root,
         touched_paths,
         subprojects: Vec::new(),
@@ -312,8 +313,121 @@ pub fn scan_all_records() -> Vec<UsageRecord> {
         }
     }
 
+    // Also scan proxy logs (Copilot via Anthropic API proxy)
+    all.extend(scan_proxy_records(&mut seen));
+
     apply_subproject_attribution(&mut all);
     all
+}
+
+/// Return the path to the proxy log directory (~/.cctrack/proxy/).
+pub fn proxy_log_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    PathBuf::from(home).join(".cctrack").join("proxy")
+}
+
+/// Parse proxy JSONL log files written by the Anthropic proxy.
+fn scan_proxy_records(seen: &mut HashMap<String, RawEvent>) -> Vec<UsageRecord> {
+    let dir = proxy_log_dir();
+    if !dir.is_dir() {
+        return vec![];
+    }
+
+    let mut records = Vec::new();
+    let mut proxy_seen: HashSet<String> = HashSet::new();
+
+    // Collect already-seen request IDs from Claude Code logs
+    for rid in seen.keys() {
+        proxy_seen.insert(rid.clone());
+    }
+
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!("Cannot read proxy log dir {:?}: {}", dir, e);
+            return vec![];
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().map_or(true, |e| e != "jsonl") {
+            continue;
+        }
+        records.extend(parse_proxy_file(&path, &mut proxy_seen));
+    }
+
+    records
+}
+
+fn parse_proxy_file(path: &Path, seen: &mut HashSet<String>) -> Vec<UsageRecord> {
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::warn!("Cannot open proxy log {:?}: {}", path, e);
+            return vec![];
+        }
+    };
+
+    let mut records = Vec::new();
+
+    for line in BufReader::new(file).lines() {
+        let line = match line {
+            Ok(l) if !l.trim().is_empty() => l,
+            _ => continue,
+        };
+
+        let entry: ProxyLogEntry = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        if seen.contains(&entry.request_id) {
+            continue;
+        }
+        seen.insert(entry.request_id.clone());
+
+        let model = normalize_model(&entry.model);
+        let input_tokens = entry.input_tokens.unwrap_or(0);
+        let output_tokens = entry.output_tokens.unwrap_or(0);
+        let cache_write_tokens = entry.cache_creation_input_tokens.unwrap_or(0);
+        let cache_read_tokens = entry.cache_read_input_tokens.unwrap_or(0);
+
+        let (cost_input, cost_output, cost_cache_write, cost_cache_read) =
+            calculate_cost(input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, &model);
+
+        let total_cost = cost_input + cost_output + cost_cache_write + cost_cache_read;
+
+        let timestamp = entry
+            .timestamp
+            .parse::<DateTime<Utc>>()
+            .unwrap_or_else(|_| Utc::now());
+
+        let source = entry.source.unwrap_or_else(|| "copilot-proxy".into());
+
+        records.push(UsageRecord {
+            request_id: entry.request_id,
+            session_id: String::new(),
+            project: format!("copilot-proxy"),
+            source,
+            workspace_root: String::new(),
+            touched_paths: Vec::new(),
+            subprojects: Vec::new(),
+            model,
+            input_tokens,
+            output_tokens,
+            cache_write_tokens,
+            cache_read_tokens,
+            cost_input,
+            cost_output,
+            cost_cache_write,
+            cost_cache_read,
+            total_cost,
+            timestamp,
+        });
+    }
+
+    records
 }
 
 fn apply_subproject_attribution(records: &mut [UsageRecord]) {

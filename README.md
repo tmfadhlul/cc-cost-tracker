@@ -17,17 +17,62 @@ Claude Code writes detailed JSONL logs to `~/.claude/projects/` after every API 
 ## Architecture
 
 ```
-Rust backend (port 8080)          Go frontend (port 45123)
-────────────────────────          ───────────────────────
-~/.claude/projects/ watcher  ───► Go templates + HTMX
-JSONL parser + dedup         ←──  REST API calls (SSR)
-REST API + WebSocket         ────► Browser WebSocket
-                                   Chart.js charts
+Python proxy (port 4001)          Rust backend (port 8080)          Go frontend (port 45123)
+────────────────────────          ────────────────────────          ───────────────────────
+VS Code Copilot requests ────────► ~/.claude/projects/ watcher ───► Go templates + HTMX
+Forward to Anthropic API          ~/.cctrack/proxy/ watcher    ←──  REST API calls (SSR)
+Log usage to                      JSONL parser + dedup         ────► Browser WebSocket
+~/.cctrack/proxy/*.jsonl          REST API + WebSocket              Chart.js charts
 ```
 
 - **Rust** handles all the data work: parsing, deduplication, cost calculation, file watching, WebSocket broadcast
 - **Go** serves the HTML dashboard with server-side rendering; the browser connects directly to the Rust WebSocket for live updates
 - Dashboard refreshes within ~500ms of Claude Code writing new logs
+
+---
+
+## Copilot proxy (optional)
+
+If you use **VS Code Copilot** with an Anthropic model, the proxy lets cc-cost track that spend alongside your Claude Code usage.
+
+### How it works
+
+`proxy/proxy.py` is a transparent HTTP proxy that sits between VS Code Copilot and the Anthropic API. Every response is forwarded unchanged; the proxy just logs token usage to `~/.cctrack/proxy/YYYY-MM-DD.jsonl` which the backend watches in real-time.
+
+### Setup
+
+**1. Start the proxy**
+
+```bash
+make run-proxy
+# or directly:
+python3 proxy/proxy.py
+```
+
+It listens on `http://localhost:4001` by default. Override with `PROXY_PORT=4001`.
+
+**2. Point Copilot at the proxy**
+
+In your VS Code `settings.json`:
+
+```json
+{
+  "github.copilot.advanced": {
+    "anthropicBaseUrl": "http://localhost:4001"
+  }
+}
+```
+
+Your API key is forwarded unchanged — the proxy never stores it.
+
+**3. That's it.** Make some Copilot requests and they'll appear in the cc-cost dashboard labelled as `copilot-proxy`.
+
+### Notes
+
+- The proxy forwards all request/response headers and bodies unmodified; it only inspects the response to extract token counts.
+- Both streaming (SSE) and non-streaming responses are handled.
+- To run it persistently alongside the main services, add it to the service installation or run it in a separate terminal.
+- Upstream URL can be overridden with `ANTHROPIC_BASE_URL` if you use a custom endpoint.
 
 ---
 
@@ -61,6 +106,7 @@ That's it. The dashboard opens at **http://localhost:45123**.
 | `make dev` | Start both servers (dev mode, auto-recompiles on change) |
 | `make run` | Build release binaries and run |
 | `make build` | Build release binaries only |
+| `make run-proxy` | Start the Copilot tracking proxy on port 4001 |
 | `make install-service` | Install as background service, auto-start on login |
 | `make uninstall-service` | Remove background service |
 | `make service-status` | Check if services are running |
@@ -100,7 +146,7 @@ Model date suffixes (e.g. `claude-opus-4-6-20250514`) are stripped automatically
 
   ![Nested Repo Breakdown](screenshot-nested.png)
 
-- **Scope**: Only captures Claude Code CLI sessions (`~/.claude/projects/`). Programmatic API calls from your own services do not appear here.
+- **Scope**: Captures Claude Code CLI sessions (`~/.claude/projects/`) and Copilot requests routed through the proxy (`~/.cctrack/proxy/`). Direct programmatic API calls from your own services do not appear unless also routed through the proxy.
 - **Pricing**: Uses public list prices. Actual console billing may differ slightly due to pricing updates or rounding.
 
 ---
@@ -112,6 +158,7 @@ Model date suffixes (e.g. `claude-opus-4-6-20250514`) are stripped automatically
 | Rust backend | `8080` | `PORT=8080 ./cc-cost-backend` |
 | Go frontend | `45123` | `FRONTEND_ADDR=:45123 ./cc-cost-frontend` |
 | Backend URL (frontend uses) | `http://localhost:8080` | `BACKEND_URL=http://localhost:8080 ./cc-cost-frontend` |
+| Copilot proxy | `4001` | `PROXY_PORT=4001 python3 proxy/proxy.py` |
 
 ---
 

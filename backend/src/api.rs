@@ -32,11 +32,14 @@ pub fn build_overview(state: &AppState) -> OverviewResponse {
     let mut week   = CostSummary::default();
     let mut month  = CostSummary::default();
     let mut breakdown = CostBreakdown::default();
-    let mut heatmap: HashMap<(u32, u32), f64> = HashMap::new();
+    let heatmap_window_start = now - Duration::days(30);
+    let mut heatmap: HashMap<String, (f64, HashMap<String, f64>)> = HashMap::new();
     let mut model_cost: HashMap<String, f64> = HashMap::new();
     let mut model_sessions: HashMap<String, HashSet<String>> = HashMap::new();
     let mut daily_map: HashMap<String, f64> = HashMap::new();
     let mut hourly = vec![0.0f64; 24];
+    // Rolling 24h window: bucket 0 = oldest hour, bucket 23 = most recent
+    let hourly_window_start = now - Duration::hours(24);
     // per-model: model → date → cost
     let mut model_daily: HashMap<String, HashMap<String, f64>> = HashMap::new();
     // per-model: model → 24 hourly values
@@ -62,26 +65,34 @@ pub fn build_overview(state: &AppState) -> OverviewResponse {
         breakdown.cache_write += r.cost_cache_write;
 
         let hour = local_ts.hour();
-        let dow  = local_ts.weekday().num_days_from_sunday();
-        *heatmap.entry((hour, dow)).or_default() += cost;
-        hourly[hour as usize] += cost;
-
-        let date = r.timestamp.format("%Y-%m-%d").to_string();
+        let date = local_ts.format("%Y-%m-%d").to_string();
         *daily_map.entry(date.clone()).or_default() += cost;
+        if r.timestamp >= heatmap_window_start {
+            let he = heatmap.entry(date.clone()).or_insert_with(|| (0.0, HashMap::new()));
+            he.0 += cost;
+            *he.1.entry(r.project.clone()).or_default() += cost;
+        }
 
         *model_cost.entry(r.model.clone()).or_default() += cost;
         model_sessions.entry(r.model.clone()).or_default().insert(r.session_id.clone());
 
-        // per-model daily + hourly
+        // per-model daily
         *model_daily.entry(r.model.clone()).or_default().entry(date).or_default() += cost;
-        let mh = model_hourly.entry(r.model.clone()).or_insert_with(|| vec![0.0; 24]);
-        mh[hour as usize] += cost;
+
+        // hourly buckets — rolling last 24h, bucket = position in window
+        if r.timestamp >= hourly_window_start {
+            let bucket = ((r.timestamp - hourly_window_start).num_seconds() / 3600)
+                .min(23).max(0) as usize;
+            hourly[bucket] += cost;
+            let mh = model_hourly.entry(r.model.clone()).or_insert_with(|| vec![0.0; 24]);
+            mh[bucket] += cost;
+        }
     }
 
     // Daily spend — last 14 days
     let dates_14: Vec<String> = (0..14i64)
         .rev()
-        .map(|i| (now - Duration::days(i)).format("%Y-%m-%d").to_string())
+        .map(|i| (now_local - Duration::days(i)).format("%Y-%m-%d").to_string())
         .collect();
 
     let daily_spend: Vec<DailySpend> = dates_14
@@ -116,10 +127,10 @@ pub fn build_overview(state: &AppState) -> OverviewResponse {
         .collect();
     model_breakdown.sort_by(|a, b| b.cost.partial_cmp(&a.cost).unwrap_or(std::cmp::Ordering::Equal));
 
-    // Heatmap
+    // Heatmap (last 30 days, one cell per local date)
     let activity_heatmap: Vec<HeatmapCell> = heatmap
         .into_iter()
-        .map(|((hour, day_of_week), cost)| HeatmapCell { hour, day_of_week, cost })
+        .map(|(date, (cost, projects))| HeatmapCell { date, cost, projects })
         .collect();
 
     // Projected month cost
@@ -140,7 +151,14 @@ pub fn build_overview(state: &AppState) -> OverviewResponse {
         month,
         projected: CostSummary { cost: projected_cost, ..Default::default() },
         daily_spend,
-        hourly_spend: hourly,
+        hourly_spend: hourly.clone(),
+        hourly_labels: (0..24u32)
+            .map(|i| {
+                let t = (hourly_window_start + Duration::hours(i as i64))
+                    .with_timezone(&Local);
+                format!("{} {} {:02}:00", t.format("%b"), t.day(), t.hour())
+            })
+            .collect(),
         model_series,
         cost_breakdown: breakdown,
         model_breakdown,

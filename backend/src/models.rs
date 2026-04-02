@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
@@ -44,6 +45,8 @@ pub struct UsageRecord {
     pub request_id: String,
     pub session_id: String,
     pub project: String,
+    /// "claude-code" or "copilot-proxy"
+    pub source: String,
     #[serde(skip_serializing)]
     pub workspace_root: String,
     #[serde(skip_serializing)]
@@ -63,6 +66,20 @@ pub struct UsageRecord {
     pub timestamp: DateTime<Utc>,
 }
 
+// ── Proxy log structures ──────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ProxyLogEntry {
+    pub request_id: String,
+    pub model: String,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub cache_creation_input_tokens: Option<u64>,
+    pub cache_read_input_tokens: Option<u64>,
+    pub timestamp: String,
+    pub source: Option<String>,
+}
+
 // ── API response types ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -73,6 +90,7 @@ pub struct OverviewResponse {
     pub projected: CostSummary,
     pub daily_spend: Vec<DailySpend>,
     pub hourly_spend: Vec<f64>,
+    pub hourly_labels: Vec<String>,
     pub model_series: Vec<ModelSeries>,
     pub cost_breakdown: CostBreakdown,
     pub model_breakdown: Vec<ModelBreakdown>,
@@ -120,9 +138,9 @@ pub struct ModelBreakdown {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct HeatmapCell {
-    pub hour: u32,
-    pub day_of_week: u32,
+    pub date: String,
     pub cost: f64,
+    pub projects: HashMap<String, f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
