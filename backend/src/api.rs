@@ -46,6 +46,11 @@ pub fn build_overview(state: &AppState) -> OverviewResponse {
     let mut model_hourly: HashMap<String, Vec<f64>> = HashMap::new();
 
     for r in &state.records {
+        // Claude Desktop agent-mode runs on the monthly subscription, not the
+        // API key — exclude it from API-usage aggregation.
+        if r.source == "claude-desktop" {
+            continue;
+        }
         let cost = r.total_cost;
         let local_ts = r.timestamp.with_timezone(&Local);
 
@@ -186,6 +191,9 @@ fn build_sessions_inner(state: &AppState, limit: usize) -> Vec<SessionSummary> {
     let mut map: HashMap<String, SessionSummary> = HashMap::new();
 
     for r in &state.records {
+        if r.source == "claude-desktop" {
+            continue;
+        }
         let e = map.entry(r.session_id.clone()).or_insert_with(|| SessionSummary {
             id: r.session_id.clone(),
             project: r.project.clone(),
@@ -212,6 +220,9 @@ pub fn build_projects(state: &AppState) -> Vec<ProjectSummary> {
     let mut map: HashMap<String, (f64, HashSet<String>, HashSet<String>, HashMap<String, (f64, HashSet<String>, HashSet<String>)>)> = HashMap::new();
 
     for r in &state.records {
+        if r.source == "claude-desktop" {
+            continue;
+        }
         let e = map.entry(r.project.clone()).or_default();
         e.0 += r.total_cost;
         e.1.insert(r.session_id.clone());

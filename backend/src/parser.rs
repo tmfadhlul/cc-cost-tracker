@@ -64,6 +64,10 @@ pub fn parse_jsonl_file(path: &Path, seen: &mut HashMap<String, RawEvent>) -> Ve
             continue;
         }
 
+        if event.is_api_error {
+            continue;
+        }
+
         if event.message.as_ref().and_then(|m| m.usage.as_ref()).is_none() {
             continue;
         }
@@ -106,9 +110,14 @@ fn event_to_record(event: RawEvent, touched_paths: Vec<String>) -> Option<UsageR
     let output_tokens      = usage.output_tokens.unwrap_or(0);
     let cache_write_tokens = usage.cache_creation_input_tokens.unwrap_or(0);
     let cache_read_tokens  = usage.cache_read_input_tokens.unwrap_or(0);
+    let cache_write_1h_tokens = usage
+        .cache_creation
+        .as_ref()
+        .map(|c| c.ephemeral_1h_input_tokens)
+        .unwrap_or(0);
 
     let (cost_input, cost_output, cost_cache_write, cost_cache_read) =
-        calculate_cost(input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, &model);
+        calculate_cost(input_tokens, output_tokens, cache_write_tokens, cache_write_1h_tokens, cache_read_tokens, &model);
 
     let total_cost = cost_input + cost_output + cost_cache_write + cost_cache_read;
 
@@ -117,6 +126,15 @@ fn event_to_record(event: RawEvent, touched_paths: Vec<String>) -> Option<UsageR
         .as_deref()
         .and_then(|t| t.parse::<DateTime<Utc>>().ok())
         .unwrap_or_else(Utc::now);
+
+    // Claude Desktop's agent mode spawns Claude Code as a subprocess and writes
+    // to ~/.claude/projects/ just like the CLI does, but those calls are billed
+    // against the user's monthly Claude.ai subscription, not the API key. Tag
+    // them so the API-usage view can exclude them.
+    let source = match event.entrypoint.as_deref() {
+        Some("claude-desktop") => "claude-desktop".to_string(),
+        _ => "claude-code".to_string(),
+    };
 
     let workspace_root = event.cwd.clone().unwrap_or_default();
     let project = if workspace_root.is_empty() {
@@ -134,7 +152,7 @@ fn event_to_record(event: RawEvent, touched_paths: Vec<String>) -> Option<UsageR
         request_id,
         session_id: event.session_id.unwrap_or_default(),
         project,
-        source: "claude-code".into(),
+        source,
         workspace_root,
         touched_paths,
         subprojects: Vec::new(),
@@ -394,7 +412,7 @@ fn parse_proxy_file(path: &Path, seen: &mut HashSet<String>) -> Vec<UsageRecord>
         let cache_read_tokens = entry.cache_read_input_tokens.unwrap_or(0);
 
         let (cost_input, cost_output, cost_cache_write, cost_cache_read) =
-            calculate_cost(input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, &model);
+            calculate_cost(input_tokens, output_tokens, cache_write_tokens, 0, cache_read_tokens, &model);
 
         let total_cost = cost_input + cost_output + cost_cache_write + cost_cache_read;
 
@@ -521,10 +539,27 @@ fn resolve_subprojects(
     names.into_iter().collect()
 }
 
+const MAX_NESTED_REPO_DEPTH: usize = 4;
+
 fn discover_repo_layout(workspace_root: &Path) -> RepoLayout {
     let root_is_repo = is_git_root(workspace_root);
+
+    // Skip discovery for overly broad roots (home dir, etc.) — walking the
+    // entire $HOME to find nested repos would take forever and is pointless.
+    let home = std::env::var("HOME").unwrap_or_default();
+    let is_too_broad = !home.is_empty()
+        && (workspace_root == Path::new(&home)
+            || workspace_root.starts_with(Path::new(&home).join("."))
+            || workspace_root == Path::new("/"));
+    if is_too_broad {
+        return RepoLayout {
+            has_multiple_repos: false,
+            nested_repos: Vec::new(),
+        };
+    }
+
     let mut nested_repos = Vec::new();
-    collect_nested_repos(workspace_root, workspace_root, &mut nested_repos);
+    collect_nested_repos(workspace_root, workspace_root, &mut nested_repos, 0);
 
     RepoLayout {
         has_multiple_repos: nested_repos.len() + usize::from(root_is_repo) > 1,
@@ -532,7 +567,11 @@ fn discover_repo_layout(workspace_root: &Path) -> RepoLayout {
     }
 }
 
-fn collect_nested_repos(workspace_root: &Path, current: &Path, nested_repos: &mut Vec<PathBuf>) {
+fn collect_nested_repos(workspace_root: &Path, current: &Path, nested_repos: &mut Vec<PathBuf>, depth: usize) {
+    if depth > MAX_NESTED_REPO_DEPTH {
+        return;
+    }
+
     let entries = match std::fs::read_dir(current) {
         Ok(entries) => entries,
         Err(_) => return,
@@ -557,12 +596,32 @@ fn collect_nested_repos(workspace_root: &Path, current: &Path, nested_repos: &mu
             continue;
         }
 
-        collect_nested_repos(workspace_root, &path, nested_repos);
+        collect_nested_repos(workspace_root, &path, nested_repos, depth + 1);
     }
 }
 
 fn should_skip_dir(name: &str) -> bool {
-    matches!(name, ".git" | "node_modules" | ".next" | "target" | "dist" | "build")
+    matches!(
+        name,
+        ".git"
+            | "node_modules"
+            | ".next"
+            | "target"
+            | "dist"
+            | "build"
+            | "vendor"
+            | "__pycache__"
+            | ".venv"
+            | "venv"
+            | ".cache"
+            | ".cargo"
+            | ".rustup"
+            | ".npm"
+            | ".pnpm-store"
+            | "Library"
+            | "Applications"
+            | ".Trash"
+    )
 }
 
 fn is_git_root(path: &Path) -> bool {
@@ -581,6 +640,8 @@ mod tests {
         let event = RawEvent {
             event_type: Some("assistant".into()),
             request_id: Some("req-1".into()),
+            is_api_error: false,
+            entrypoint: None,
             session_id: Some("session-1".into()),
             cwd: Some("/tmp/workspace".into()),
             timestamp: Some("2026-03-31T00:00:00Z".into()),
@@ -600,6 +661,7 @@ mod tests {
                     output_tokens: Some(1),
                     cache_creation_input_tokens: Some(0),
                     cache_read_input_tokens: Some(0),
+                    cache_creation: None,
                 }),
             }),
         };

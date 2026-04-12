@@ -13,6 +13,9 @@ pub struct RawEvent {
     pub event_type: Option<String>,
     #[serde(rename = "requestId")]
     pub request_id: Option<String>,
+    #[serde(rename = "isApiErrorMessage", default)]
+    pub is_api_error: bool,
+    pub entrypoint: Option<String>,
     #[serde(rename = "sessionId")]
     pub session_id: Option<String>,
     pub cwd: Option<String>,
@@ -36,6 +39,15 @@ pub struct RawUsage {
     pub output_tokens: Option<u64>,
     pub cache_creation_input_tokens: Option<u64>,
     pub cache_read_input_tokens: Option<u64>,
+    pub cache_creation: Option<CacheCreationBreakdown>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CacheCreationBreakdown {
+    #[serde(default)]
+    pub ephemeral_5m_input_tokens: u64,
+    #[serde(default)]
+    pub ephemeral_1h_input_tokens: u64,
 }
 
 // ── Domain model ──────────────────────────────────────────────────────────────
@@ -177,7 +189,8 @@ pub struct RateEntry {
     pub model: String,
     pub input_per_mtok: f64,
     pub output_per_mtok: f64,
-    pub cache_write_per_mtok: f64,
+    pub cache_write_5m_per_mtok: f64,
+    pub cache_write_1h_per_mtok: f64,
     pub cache_read_per_mtok: f64,
 }
 
